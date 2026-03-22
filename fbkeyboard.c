@@ -19,6 +19,7 @@
 */
 
 #include <stdlib.h>
+#include <stdint.h>
 #include <signal.h>
 #include <fcntl.h>
 #include <string.h>
@@ -67,13 +68,13 @@ __u16 keys[][26] = {
 	  KEY_RIGHTSHIFT }
 };
 
-#define TOUCHCOLOR 0x4444ee
-#define BUTTONCOLOR 0x111122
-#define BACKLITCOLOR 0xff0000
-#define TERMCOLOR 0x000000
-int gap = 2;
-
-int rotate = 0;
+#define TOUCHCOLOR 0x4091fd /* 0x171717 */
+#define BUTTONCOLOR 0x2d2d2d
+#define BACKLITCOLOR 0x2d2d2d
+#define TERMCOLOR 0x0a0a0a
+int gap = 1;
+int rot = 0;
+int org_rot = 0;
 
 struct fb_var_screeninfo vinfo;
 struct fb_fix_screeninfo finfo;
@@ -96,11 +97,39 @@ int theight;	// of touchscreen
 int twidth;	// of touchscreen
 int trowh;	// heigth of one keyboard row on touchscreen
 
+int rotate(void)
+{
+	return rot;
+}
+
+int rotate_fbcon(void)
+{
+	int fd = open("/sys/class/graphics/fbcon/rotate", O_RDWR);
+	if (fd >= 0) {
+		int r = rot + '0';
+		read(fd, &org_rot, 1);
+		org_rot -= '0';
+		write(fd, &r, 1);
+		close(fd);
+	}
+}
+
 void fill_rect(int x, int y, int w, int h, int color)
 {
-	int i, j, t;
+	int i, j;
 	int32_t *line;
-	switch (rotate) {
+	for (i = 0; i < h; i++) {
+		line = (int32_t *) (buf + linelength * (y + i));
+		for (j = 0; j < w; j++) {
+			*(line + x + j) = color;
+		}
+	}
+}
+
+void fill_rounded_rect(int x, int y, int w, int h, uint32_t color)
+{
+	int t;
+	switch (rotate()) {
 		case FB_ROTATE_UR:
 			break;
 		case FB_ROTATE_UD:
@@ -118,10 +147,38 @@ void fill_rect(int x, int y, int w, int h, int color)
 			t = x; x = y; y = t;
 			break;
 	}
-	for (i = 0; i < h; i++) {
-		line = (int32_t *) (buf + linelength * (y + i));
-		for (j = 0; j < w; j++) {
-			*(line + x + j) = color;
+
+    // fallback
+    if (w < 14 || h < 14) {
+        fill_rect(x, y, w, h, color);
+    } else {
+		int i, j;
+		int rad = 7;
+		const int crnr_offt[7] = {0,3,5,6,6,7,7}; // floor(sqrt(7^2 - (7-i)^2))
+
+		// draw the three rectangular bands: top, mid, bot
+		fill_rect(x + rad, y, w - rad * 2, rad, color);
+		fill_rect(x, y + rad, w, h - rad * 2, color);
+		fill_rect(x + rad, y + h - rad, w - rad * 2, rad, color);
+
+		for (i = 0; i < rad; i++) {
+			int crnr_width = crnr_offt[i];
+			uint32_t *ln_top = (uint32_t *)(buf + linelength * (y + i));
+			uint32_t *ln_bot = (uint32_t *)(buf + linelength * (y + h - 1 - i));
+
+			if (crnr_width) {
+				// top corners - left and right
+				for (j = 0; j < crnr_width; j++) {
+					*(ln_top + x + rad - 1 - j) =
+					*(ln_top + x + w - rad + j) = color;
+				}
+
+				// bottom corners - left and right
+				for (j = 0; j < crnr_width; j++) {
+					*(ln_bot + x + rad - 1 - j) =
+					*(ln_bot + x + w - rad + j) = color;
+				}
+			}
 		}
 	}
 }
@@ -131,7 +188,7 @@ void draw_char(int x, int y, char c)
 	int i, j, t;
 	int color;
 	FT_Matrix matrix;
-	switch (rotate) {
+	switch (rotate()) {
 		case FB_ROTATE_UR:
 			FT_Load_Char(face, c, FT_LOAD_RENDER);
 			x += face->glyph->bitmap_left;
@@ -184,12 +241,11 @@ void draw_char(int x, int y, char c)
 			    *(face->glyph->bitmap.buffer +
 			      face->glyph->bitmap.pitch * i + j);
 			if (color) {
-				*(buf + linelength * (i + y) +
-				  (j + x) * 4) = color;
-				*(buf + linelength * (i + y) +
-				  (j + x) * 4 + 1) = color;
-				*(buf + linelength * (i + y) +
-				  (j + x) * 4 + 2) = color;
+
+				uint32_t *p = ((uint32_t *)(buf + linelength * (i + y) +
+				  (j + x) * 4));
+
+				*p |= ((color << 16) | (color << 8) | color);
 			}
 		}
 }
@@ -205,24 +261,21 @@ void draw_text(int x, int y, char *text)
 
 void draw_key(int x, int y, int w, int h, int color)
 {
-	fill_rect(x + gap, y + gap, w - 2 * gap, 1, BACKLITCOLOR);
-	fill_rect(x + gap, y + h - gap, w - 2 * gap, 1, BACKLITCOLOR);
-	fill_rect(x + gap, y + gap, 1, h - 2 * gap, BACKLITCOLOR);
-	fill_rect(x + w - gap, y + gap, 1, h - 2 * gap, BACKLITCOLOR);
-	fill_rect(x + gap + 1, y + gap + 1, w - 2 * gap - 2,
-		  h - 2 * gap - 2, color);
+	fill_rounded_rect(x + gap + 1, y + gap + 1, w - 2 * gap - 2, h - 2 * gap - 2, color);
 }
 
 void draw_textbutton(int x, int y, int w, int h, int color, char *text)
 {
+	int offset = (TOUCHCOLOR == color) ? 2 : 0;
 	draw_key(x, y, w, h, color);
-	draw_text(x + gap + 14, y + gap + 24, text);
+	draw_text(x + gap + 14 + offset, y + gap + 24 + offset, text);
 }
 
 void draw_button(int x, int y, int w, int h, int color, char chr)
 {
+	int offset = (TOUCHCOLOR == color) ? 2 : 0;
 	draw_key(x, y, w, h, color);
-	draw_char(x + gap + 7, y + gap + 7, chr);
+	draw_char(x + gap + 7 + offset, y + gap + 7 + offset, chr);
 }
 
 void draw_keyboard(int row, int pressed)
@@ -300,7 +353,7 @@ void draw_keyboard(int row, int pressed)
 
 void show_fbkeyboard(int fbfd)
 {
-	switch (rotate) {
+	switch (rotate()) {
 		case FB_ROTATE_UR:
 			lseek(fbfd, fblinelength * (fbheight - height * 5), SEEK_SET);
 			write(fbfd, buf, buflen);
@@ -358,7 +411,7 @@ int check_input_events(int fdinput, int *x, int *y)
 				released = 1;
 			}
 		}
-	switch (rotate) {
+	switch (rotate()) {
 		case FB_ROTATE_UR:
 			*x = absolute_x * 0x10000 / twidth;
 			*y = absolute_y * 0x10000 / theight;
@@ -579,11 +632,12 @@ int main(int argc, char *argv[])
 			break;
 		case 'r':
 			errno = 0;
-			rotate = strtol(optarg, &p, 10) % 4;
+			rot = strtol(optarg, &p, 10) % 4;
 			if (errno != 0 || p == optarg || p == NULL || *p != '\0') {
 				printf("Invalid numeric value for -r option\n");
 				exit(0);
 			}
+			rotate_fbcon();
 			break;
 		case 'h':
 			printf("usage: %s [options]\npossible options are:\n -h: print this help\n -d: set path to inputdevice\n -f: set path to font\n -r: set rotation\n",
@@ -613,7 +667,7 @@ int main(int argc, char *argv[])
 	fbwidth = vinfo.xres;
 	fbheight = vinfo.yres;
 	fblinelength = finfo.line_length;
-	switch (rotate) {
+	switch (rotate()) {
 		case FB_ROTATE_UR:
 		case FB_ROTATE_UD:
 			landscape = fbheight < fbwidth;
@@ -642,11 +696,15 @@ int main(int argc, char *argv[])
 		perror("unable to load font file");
 		exit(-1);
 	}
+	if (FT_Set_Char_Size(face, 0, 14*64, 120, 120)) {
+		perror("FT_Set_Char_Size failed");
+		exit(-1);
+	}
+	/*
 	if (FT_Set_Pixel_Sizes(face, height * 1 / 4, height * 1 / 4)) {
 		perror("FT_Set_Pixel_Sizes failed");
 		exit(-1);
-	}
-
+	}*/
 	if (device) {
 		if ((fdinput = open(device, O_RDONLY)) == -1) {
 			perror("failed to open input device node");
@@ -739,16 +797,23 @@ int main(int argc, char *argv[])
 		show_fbkeyboard(fbfd);
 
 		released = check_input_events(fdinput, &x, &y);
-		if (released && pressed != -1)
+
+		if (released && pressed != -1) {
 			send_uinput_event(row, pressed);
+		}
 
 		pressed = -1;
-		if (!released)
+		if (!released) {
 			identify_touched_key(x, y, &row, &pressed);
+		}
 	}
 
 	int i;
 	char buf[12];
+
+	rot = org_rot;
+	rotate_fbcon();
+
 	for (i = 1; i <= MAX_NR_CONSOLES; i++) {
 		snprintf(buf, 12, "/dev/tty%d", i);
 		if (resized[i]) {
