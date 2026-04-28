@@ -35,7 +35,7 @@
 
 volatile sig_atomic_t done = 0;
 
-char *font = "/usr/share/fonts/ttf-dejavu/DejaVuSans.ttf";
+char *font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 char *device = NULL;
 char *special[][7] = {
 	{ "Esc", "Tab", "F10", " / ", " - ", " . ", " \\ " },
