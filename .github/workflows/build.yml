@@ -1,0 +1,21 @@
+name: Build
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: sudo apt-get install -y libfreetype-dev pkg-config
+      
+      - name: Build
+        run: gcc -o fbkeyboard fbkeyboard.c $(pkg-config --cflags --libs freetype2)
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fbkeyboard
+          path: fbkeyboard

@@ -45,7 +45,7 @@ char *special[][7] = {
 char *layout[] = {
 	"qwertyuiopasdfghjklzxcvbnm",
 	"QWERTYUIOPASDFGHJKLZXCVBNM",
-	"1234567890-=[];\'\\,.`/     ",
+	"1234567890-=[];\'\\,.`/<v^> ",
 	"!@#$%^&*()_+{}:\"|<>~?     "
 };
 
@@ -59,7 +59,7 @@ __u16 keys[][26] = {
 	  KEY_Z, KEY_X, KEY_C, KEY_V, KEY_B, KEY_N, KEY_M },
 	{ KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0,
 	  KEY_MINUS, KEY_EQUAL, KEY_LEFTBRACE, KEY_RIGHTBRACE, KEY_SEMICOLON, KEY_APOSTROPHE, KEY_BACKSLASH, KEY_COMMA, KEY_DOT,
-	  KEY_GRAVE, KEY_SLASH, KEY_C, KEY_V, KEY_B, KEY_N, KEY_M },
+	  KEY_GRAVE, KEY_SLASH, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_RIGHT, KEY_M },
 	{ KEY_LEFTSHIFT, KEY_BACKSPACE },
 	{ KEY_LEFTALT, KEY_SPACE, KEY_RIGHTCTRL, KEY_ENTER },
 	{ KEY_HOME, KEY_UP, KEY_PAGEUP,
@@ -477,10 +477,8 @@ void identify_touched_key(int x, int y, int *row, int *pressed)
 				*pressed = 3;	// Enter
 			break;
 		default:
-			*row = 5;		// cursor, Enter, Home, PgDn, etc
-			*pressed = 3 * y / (0x10000 - trowh * 5);
-			*pressed *= 3;
-			*pressed += 3 * x / 0x10000;
+        	*row = -1;
+        	*pressed = -1;
 			break;
 	}
 }
